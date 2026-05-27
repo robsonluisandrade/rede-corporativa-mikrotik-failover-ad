@@ -197,7 +197,7 @@ Sou **Robson Andrade**, Especialista Sênior em Infraestrutura de TI com mais de
 
 Formado em Análise e Desenvolvimento de Sistemas, com pós-graduações em andamento em Arquitetura e Gestão de Infraestrutura em TI, Segurança da Informação, Perícia Cibernética e Computação em Nuvem.
 
-📞 +55 (92) 9 8187-7120  
+
 💼 [linkedin.com/in/robsonandradee](https://www.linkedin.com/in/robsonandradee)  
 📧 robsonluisandrade@gmail.com
 
