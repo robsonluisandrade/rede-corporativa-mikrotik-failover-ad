@@ -263,4 +263,4 @@ Outlook Classic configurado em todas as máquinas do domínio via IMAP/SMTP com 
 *\* MACs neste documento são fictícios para fins de portfólio.*
 
 *Documentação Técnica — MikroTik hEX — 192.168.88.0/24 — Maio 2026*  
-*Robson Andrade | robsonluisandrade@gmail.com | (92) 9 8187-7120*
+*Robson Andrade | robsonluisandrade@gmail.com*
