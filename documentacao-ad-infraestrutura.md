@@ -1,7 +1,7 @@
 # Etapa 2 — Active Directory, Acesso Remoto, Backups e Serviços
 
 > Continuação do projeto de reestruturação de infraestrutura corporativa.  
-> Parte 1: [MikroTik hEX — Dual WAN, Firewall, QoS e Segmentação de Rede](README.md)
+> Parte 1 + Etapa 3 (Zabbix): [MikroTik hEX — Dual WAN, Firewall, QoS, Segmentação e Monitoramento](README.md)
 
 ---
 
@@ -24,6 +24,8 @@ O DHCP continua sendo feito pelo MikroTik. O DNS das máquinas foi apontado para
 Os usuários foram criados por setor — Comercial, Compras, Faturamento, Financeiro, Administração, Laboratório, Qualidade/SGQ — e os computadores foram ingressados no domínio um a um. Sete PCs que antes eram máquinas soltas passaram a fazer parte de uma estrutura centralizada.
 
 O NAS Synology também foi ingressado no domínio, permitindo usar os usuários e grupos do AD diretamente nas permissões das pastas compartilhadas — sem precisar criar contas locais separadas no NAS.
+
+> O servidor AD também hospeda o **Hyper-V** que roda a VM do servidor Zabbix (Etapa 3 — Ubuntu Server 22.04, IP `192.168.88.242`). Ter a VM de monitoramento no mesmo servidor evitou a necessidade de hardware adicional.
 
 ---
 
@@ -57,13 +59,15 @@ O script roda em **Configuração do Usuário → Scripts (Logon)**, garantindo 
 
 ## Sistemas hospedados no servidor AD
 
-O servidor hospeda dois sistemas além das funções de domínio:
+O servidor hospeda dois sistemas além das funções de domínio e do Hyper-V:
 
 **Sistema ERP** — rodando com SQL Server 2017. O executável é distribuído via GPO para todos os computadores do domínio, sempre na versão mais recente do servidor.
 
 **Sistema de Ponto** — integrado ao relógio de ponto (`192.168.88.230`), mantido com IP fixo no dispositivo desde a Etapa 1.
 
-Ter os dois sistemas no mesmo servidor foi uma escolha consciente de custo e simplicidade. O hardware suporta bem a carga e a manutenção fica centralizada.
+**Hyper-V** — hospeda a VM do servidor Zabbix (Ubuntu Server 22.04 LTS, IP `192.168.88.242`). A carga da VM é baixa — Zabbix com PostgreSQL em ambiente pequeno consome menos de 1 GB de RAM.
+
+Ter tudo no mesmo servidor foi uma escolha consciente de custo e simplicidade. O hardware suporta bem a carga e a manutenção fica centralizada.
 
 ---
 
@@ -73,7 +77,7 @@ O acesso remoto anterior era feito por AnyDesk e TeamViewer — ambos exigindo q
 
 A solução foi o **Tailscale**, uma VPN mesh que cria uma rede privada entre dispositivos sem precisar abrir portas no firewall ou configurar NAT. O servidor AD e o notebook de TI foram conectados à mesma conta Tailscale.
 
-Com o Tailscale ativo, é possível acessar qualquer máquina da rede interna de fora da empresa como se estivesse fisicamente dentro do escritório.
+Com o Tailscale ativo, é possível acessar qualquer máquina da rede interna de fora da empresa como se estivesse fisicamente dentro do escritório — incluindo o frontend do Zabbix em `http://192.168.88.242/zabbix`.
 
 ### O problema que apareceu depois
 
@@ -95,7 +99,7 @@ Para terceiros (suporte externo, fornecedores), o AnyDesk continua disponível �
 
 ---
 
-## Synology — Domínio e Permissões
+## Synology — Domínio, Permissões e Monitoramento
 
 O NAS foi ingressado no domínio, o que trouxe um benefício direto: as pastas compartilhadas passaram a reconhecer os usuários e grupos do AD para controle de acesso, sem precisar criar contas duplicadas.
 
@@ -111,20 +115,26 @@ A solução foi ir em **Painel de Controle → Pasta Compartilhada → Editar �
 
 Para cenários onde um usuário precisa ver apenas uma subpasta dentro de uma pasta maior, o Synology permite isso via **Permissões Avançadas** com a opção *"Ocultar subpastas e arquivos de usuários sem permissão"* ativa na pasta compartilhada. A configuração de acesso por subpasta é feita no **File Station** — o Painel de Controle habilita o recurso, mas a configuração real por subpasta acontece no File Station.
 
+### SNMP para monitoramento
+
+O Synology tem suporte nativo a SNMP. Após habilitar em **Painel de Controle → Terminal e SNMP**, o Zabbix passou a monitorar temperatura, uso de disco por volume, status dos discos físicos e disponibilidade do NAS. O template `Synology DiskStation by SNMP` cobre todos esses pontos automaticamente.
+
 ---
 
 ## Backup — Estratégia com Nuvem
 
 A estratégia foi montada usando o Synology como ponto central, com Cloud Sync e Hyper Backup conectados ao Google Drive e ao OneDrive.
 
-| Frequência | Tipo | Destino |
-|---|---|---|
-| Seg / Qua / Sex | Incremental | OneDrive |
-| Sáb / Dom | Full (completo) | OneDrive |
-| Contínuo | Cloud Sync | Google Drive |
-| A cada alteração significativa | Backup SQL Server | NAS + nuvem |
+| Frequência                     | Tipo             | Destino           |
+| ------------------------------ | ---------------- | ----------------- |
+| Seg / Qua / Sex                | Incremental      | OneDrive          |
+| Sáb / Dom                      | Full (completo)  | OneDrive          |
+| Contínuo                       | Cloud Sync       | Google Drive      |
+| A cada alteração significativa | Backup SQL Server | NAS + nuvem      |
 
 Essa rotina garante que, em qualquer dia da semana, existe um ponto de restauração recente disponível. O backup do SQL Server inclui os dados do ERP e do sistema de ponto — os mais críticos para a operação.
+
+> O Zabbix monitora o espaço disponível no Synology. Um alerta dispara quando o uso ultrapassa 80%, antes que o backup em nuvem seja impactado.
 
 ---
 
@@ -150,19 +160,20 @@ Com PHP 8.2 e MariaDB 10, não há bloqueio de compatibilidade para as versões 
 
 As decisões tomadas ao longo do projeto não foram pensadas com certificação em mente — foram decisões práticas para resolver problemas reais. Mas o resultado é uma infraestrutura que, por design, já segue os princípios das principais referências de segurança.
 
-| Implementação | Princípio |
-|---|---|
-| Dispositivos desconhecidos isolados por padrão | ISO 27001 A.9 — Controle de acesso / LGPD Art. 46 |
-| Câmeras e impressoras sem acesso à internet | LGPD Art. 6 — Minimização de exposição de dados |
-| Winbox restrito à rede local + detecção de port scan | ISO 27001 A.13 — Segurança de rede |
-| Usuários com permissões por função e setor | ISO 27001 A.9.2 — Princípio do menor privilégio |
-| Backup incremental e full com rotina definida | ISO 27001 A.17 — Continuidade de negócios |
-| Acesso remoto via VPN sem portas abertas | ISO 27001 A.13.2 — Segurança em canais de comunicação |
-| RustDesk self-hosted — sem dados em servidores externos | LGPD Art. 46 — Medidas de segurança no processamento |
-| Logs de firewall e failover no MikroTik | ISO 27001 A.12.4 — Rastreabilidade e auditoria |
-| GPO restringindo instalação de software | ISO 27001 A.12.6 — Gestão de vulnerabilidades técnicas |
-| Firewall com 25 regras e bloqueio total de acesso externo | ISO 27001 A.13.1 — Controles de rede |
-| Failover automático — sem dependência de intervenção humana | ISO 27001 A.17.2 — Redundâncias de infraestrutura |
+| Implementação                                              | Princípio                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------ |
+| Dispositivos desconhecidos isolados por padrão             | ISO 27001 A.9 — Controle de acesso / LGPD Art. 46      |
+| Câmeras e impressoras sem acesso à internet                | LGPD Art. 6 — Minimização de exposição de dados        |
+| Winbox restrito à rede local + detecção de port scan       | ISO 27001 A.13 — Segurança de rede                     |
+| Usuários com permissões por função e setor                 | ISO 27001 A.9.2 — Princípio do menor privilégio        |
+| Backup incremental e full com rotina definida              | ISO 27001 A.17 — Continuidade de negócios              |
+| Acesso remoto via VPN sem portas abertas                   | ISO 27001 A.13.2 — Segurança em canais de comunicação  |
+| RustDesk self-hosted — sem dados em servidores externos    | LGPD Art. 46 — Medidas de segurança no processamento   |
+| Logs de firewall e failover no MikroTik                    | ISO 27001 A.12.4 — Rastreabilidade e auditoria         |
+| GPO restringindo instalação de software                    | ISO 27001 A.12.6 — Gestão de vulnerabilidades técnicas |
+| Firewall com 25 regras + Bloco 8 (Zabbix)                  | ISO 27001 A.13.1 — Controles de rede                   |
+| Failover automático — sem dependência de intervenção humana| ISO 27001 A.17.2 — Redundâncias de infraestrutura      |
+| Zabbix — monitoramento em tempo real com alertas proativos | ISO 27001 A.12.1 — Gestão de operações / A.12.4 — Auditoria |
 
 ---
 
@@ -176,13 +187,15 @@ Em todos os casos, a investigação levou ao mesmo aprendizado: **o problema rar
 
 Entender o comportamento real do sistema, e não o comportamento esperado, foi o que resolveu cada um desses problemas.
 
+Isso ficou ainda mais claro com o Zabbix: na primeira semana após a implantação, dois alertas apareceram antes de qualquer usuário reclamar. Um PC com disco a 94% (descoberto às 22h, antes de virar problema no dia seguinte), e uma impressora que ficava offline por minutos toda madrugada — padrão que nunca teria sido percebido sem monitoramento. **Visibilidade não é luxo. É o que separa gestão reativa de gestão proativa.**
+
 ---
 
 ## Tecnologias utilizadas nessa etapa
 
-`Windows Server 2019` `Active Directory` `DNS` `GPO` `SQL Server 2017` `PowerShell` `Tailscale VPN` `RustDesk` `Synology DSM` `Cloud Sync` `Hyper Backup` `OneDrive` `Google Drive` `WordPress` `MariaDB 10` `PHP 8.2` `Outlook Classic` `ISO 27001` `LGPD`
+`Windows Server 2019` `Active Directory` `DNS` `GPO` `Hyper-V` `SQL Server 2017` `PowerShell` `Tailscale VPN` `RustDesk` `Synology DSM` `Cloud Sync` `Hyper Backup` `OneDrive` `Google Drive` `WordPress` `MariaDB 10` `PHP 8.2` `Outlook Classic` `Zabbix 7.0 LTS` `Ubuntu Server 22.04` `PostgreSQL 16` `SNMP v2c` `Zabbix Agent 2` `ISO 27001` `LGPD`
 
 ---
 
-*Projeto desenvolvido e documentado por Robson Andrade — Maio de 2026*  
-📞 +55 (92) 9 8187-7120 · [linkedin.com/in/robsonandradee](https://www.linkedin.com/in/robsonandradee) · robsonluisandrade@gmail.com
+*Projeto desenvolvido e documentado por Robson Andrade — Junho de 2026*  
+💼 [linkedin.com/in/robsonandradee](https://www.linkedin.com/in/robsonandradee) · 📧 robsonluisandrade@gmail.com

@@ -9,7 +9,7 @@
 ## Sumário
 
 | Seção | O que faz |
-|---|---|
+| ----- | --------- |
 | 1. Dispositivo novo apareceu | O que fazer quando um equipamento desconhecido se conecta |
 | 2. Autorizar internet pela Fibra | Liberar internet + acesso à rede para PC ou notebook |
 | 3. Autorizar internet pela Starlink | Liberar internet pela Starlink + acesso à rede |
@@ -19,7 +19,8 @@
 | 7. Remover acesso ao Winbox | Revogar permissão de gerenciamento |
 | 8. Mover para sem-internet | Bloquear internet mas manter na rede local |
 | 9. Como funciona o isolamento de desconhecidos | Referência sobre o bloqueio automático |
-| 10. Referência rápida | Tabela com todos os comandos |
+| 10. Monitoramento — Zabbix | Verificar alertas, status dos hosts e diagnóstico |
+| 11. Referência rápida | Tabela com todos os comandos |
 
 ---
 
@@ -28,7 +29,7 @@
 Quando um equipamento desconhecido se conecta, ele recebe IP entre `.2` e `.59` e fica **completamente isolado**:
 
 | Tenta acessar | Resultado |
-|---|---|
+| ------------- | --------- |
 | Internet | Bloqueado |
 | Servidor AD, NAS, NVR | Bloqueado |
 | Câmeras e impressoras | Bloqueado |
@@ -164,14 +165,14 @@ Use para: celulares de funcionários, dispositivos que fazem downloads grandes, 
 
 ### Quem já tem acesso por padrão
 
-| IP | Dispositivo |
-|---|---|
-| 192.168.88.234 | SRV-AD01 |
+| IP           | Dispositivo             |
+| ------------ | ----------------------- |
+| 192.168.88.234 | SRV-AD01              |
 | 192.168.88.125 | Notebook-TI-01 (cabo) |
-| 192.168.88.126 | Celular-TI-01 |
-| 192.168.88.127 | Notebook-TI-01 (Wi-Fi) |
-| .120 — .154 | Toda a faixa de diretoria e autorizados |
-| .155 — .194 | Toda a faixa de PCs do domínio |
+| 192.168.88.126 | Celular-TI-01         |
+| 192.168.88.127 | Notebook-TI-01 (Wi-Fi)|
+| .120 — .154  | Toda a faixa de diretoria e autorizados |
+| .155 — .194  | Toda a faixa de PCs do domínio |
 
 ### Autorizar novo dispositivo
 
@@ -231,7 +232,7 @@ Use para: celulares de funcionários, dispositivos que fazem downloads grandes, 
 Todo dispositivo que conectar na rede **sem cadastro** fica completamente isolado por padrão.
 
 | Ação | Resultado |
-|---|---|
+| ---- | --------- |
 | Conectar no Wi-Fi ou cabo | Sim — recebe IP entre .2 e .59 |
 | Acessar internet | Não — bloqueado |
 | Acessar servidor AD | Não — bloqueado |
@@ -261,12 +262,84 @@ Câmeras, impressoras e relógio de ponto estão em `sem-internet` e também nã
 
 ---
 
-## 10. Referência Rápida
+## 10. Monitoramento — Zabbix
+
+O servidor Zabbix roda em `192.168.88.242`. Acesse o frontend em qualquer navegador da rede:
+
+```
+http://192.168.88.242/zabbix
+```
+
+### Verificar status dos hosts
+
+No frontend: **Monitoramento → Hosts** — todos os 12 hosts devem aparecer com status verde (disponível). Se um host estiver vermelho, o problema foi detectado antes que qualquer usuário reportasse.
+
+### Verificar alertas ativos
+
+No frontend: **Monitoramento → Problemas** — lista todos os alertas ativos com severidade, horário e host afetado.
+
+### Diagnóstico pelo terminal do servidor Zabbix
+
+```bash
+# Status do servidor
+sudo systemctl status zabbix-server
+
+# Últimas linhas do log
+sudo tail -50 /var/log/zabbix/zabbix_server.log
+
+# Testar SNMP do MikroTik
+snmpwalk -v2c -c empresa-zabbix 192.168.88.1 .1.3.6.1.2.1.1.1.0
+
+# Testar SNMP do NAS
+snmpwalk -v2c -c empresa-zabbix 192.168.88.235 .1.3.6.1.2.1.1.1.0
+
+# Testar agente em um PC do domínio
+zabbix_get -s 192.168.88.155 -p 10050 -k system.hostname
+
+# Ping nas impressoras monitoradas
+ping 192.168.88.225
+ping 192.168.88.229
+```
+
+### Dispositivos monitorados — resumo rápido
+
+| IP             | Dispositivo    | Método       |
+| -------------- | -------------- | ------------ |
+| 192.168.88.1   | MikroTik hEX   | SNMP v2c     |
+| 192.168.88.234 | SRV-AD01       | Agent 2      |
+| 192.168.88.235 | NAS-Synology   | SNMP v2c     |
+| .155 — .161    | 7 PCs domínio  | Agent 2      |
+| 192.168.88.225 | Impressora-01  | SNMP / ICMP  |
+| 192.168.88.229 | Impressora-05  | SNMP / ICMP  |
+
+### Se um agente Windows parar de responder
+
+1. No PC afetado, verificar o serviço:
+```powershell
+Get-Service -Name 'Zabbix Agent 2'
+Start-Service -Name 'Zabbix Agent 2'
+```
+
+2. Se o problema persistir, verificar o firewall do Windows:
+```powershell
+Get-NetFirewallRule -DisplayName 'Zabbix Agent 2'
+```
+
+3. Se a regra não existir, recriá-la:
+```powershell
+New-NetFirewallRule -DisplayName 'Zabbix Agent 2' `
+    -Direction Inbound -Protocol TCP -LocalPort 10050 `
+    -Action Allow -Profile Domain,Private
+```
+
+---
+
+## 11. Referência Rápida
 
 ### Internet
 
 | Ação | Comando |
-|---|---|
+| ---- | ------- |
 | Autorizar Fibra | `/ip firewall address-list add list=com-internet address=192.168.88.XXX comment="Nome"` |
 | Autorizar Starlink (passo 1) | `/ip firewall address-list add list=com-internet address=192.168.88.XXX comment="Nome"` |
 | Autorizar Starlink (passo 2) | `/ip firewall mangle add chain=prerouting src-address=192.168.88.XXX in-interface=bridge-lan action=mark-routing new-routing-mark=via-starlink passthrough=yes comment="Nome"` |
@@ -280,16 +353,16 @@ Câmeras, impressoras e relógio de ponto estão em `sem-internet` e também nã
 ### Winbox
 
 | Ação | Comando |
-|---|---|
+| ---- | ------- |
 | Ver quem tem acesso | `/ip firewall address-list print where list=acesso-winbox` |
 | Autorizar novo PC | `/ip firewall address-list add list=acesso-winbox address=192.168.88.XXX comment="Nome"` |
 | Remover acesso | `/ip firewall address-list remove [find list=acesso-winbox address=192.168.88.XXX]` |
 | Trocar IP | `/ip firewall address-list set [find list=acesso-winbox address=192.168.88.ANTIGO] address=192.168.88.NOVO` |
 
-### Diagnóstico
+### Diagnóstico — MikroTik
 
 | Ação | Comando |
-|---|---|
+| ---- | ------- |
 | Ver todos os dispositivos | `/ip dhcp-server lease print` |
 | Ver conectados agora | `/ip dhcp-server lease print where status=bound` |
 | Ver desconhecidos | `/ip dhcp-server lease print where dynamic=yes` |
@@ -302,6 +375,17 @@ Câmeras, impressoras e relógio de ponto estão em `sem-internet` e também nã
 | Ver filas QoS | `/queue tree print` |
 | Ver estado dos links | `/tool netwatch print` |
 
+### Diagnóstico — Zabbix (servidor .242)
+
+| Ação | Comando |
+| ---- | ------- |
+| Status do servidor | `sudo systemctl status zabbix-server` |
+| Log do servidor | `sudo tail -50 /var/log/zabbix/zabbix_server.log` |
+| Testar SNMP MikroTik | `snmpwalk -v2c -c empresa-zabbix 192.168.88.1 .1.3.6.1.2.1.1.1.0` |
+| Testar SNMP NAS | `snmpwalk -v2c -c empresa-zabbix 192.168.88.235 .1.3.6.1.2.1.1.1.0` |
+| Testar agente PC | `zabbix_get -s 192.168.88.155 -p 10050 -k system.hostname` |
+| Ping impressora | `ping 192.168.88.225` |
+
 ---
 
-*Guia Operacional — MikroTik hEX — Maio 2026*
+*Guia Operacional — MikroTik hEX — Junho 2026*
